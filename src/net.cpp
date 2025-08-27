@@ -8,18 +8,12 @@
 #include <queue>
 #include "net.h"
 
-struct Node {
-    bool _is_large;
-    union {
-        std::map<unsigned, unsigned>* map_ptr;
-        std::vector<std::pair<Node, unsigned>>* vector_ptr; 
-    } data;
 
-    ~Node(){
+    Node::~Node(){
         if(_is_large) delete data.vector_ptr;
         else delete data.map_ptr;
     }
-    unsigned find(unsigned node){
+    unsigned Node::find(unsigned node){
         if(_is_large){
             unsigned ans;
             for(auto i : *data.vector_ptr){
@@ -30,7 +24,7 @@ struct Node {
         return NOT_FOUND;
     }
 
-    void fill(Node &from, unsigned dist){
+    void Node::fill(Node &from, unsigned dist){
         if(_is_large){
             if(from._is_large){
                 for(auto i : *from.data.vector_ptr){
@@ -46,12 +40,10 @@ struct Node {
         }
         
     }
-};
-
 //При is_large < LARGE m хранит расстояния до вершин, иначе расстояния до компонент
 
-void generate_unordered_temporal_graph(const std::string &filename, unsigned num_v = 1e6,
-        unsigned num_e = 1e7, unsigned period = 1e4){
+void generate_unordered_temporal_graph(const std::string &filename, unsigned num_v,
+        unsigned num_e, unsigned period){
     std::ofstream file(filename);
     //Создаем генератор случайных чисел
     std::random_device rd;  // Источник энтропии 
@@ -69,8 +61,8 @@ void generate_unordered_temporal_graph(const std::string &filename, unsigned num
     } 
 }
 
-void generate_ordered_temporal_graph(const std::string &filename, unsigned num_v = 1e6,
-        unsigned num_e = 1e6, unsigned period = 1e4){
+void generate_ordered_temporal_graph(const std::string &filename, unsigned num_v,
+        unsigned num_e, unsigned period){
     std::ofstream file(filename);
     //Создаем генератор случайных чисел
     std::random_device rd;  // Источник энтропии 
@@ -101,8 +93,8 @@ void calc_time(F&& func, Args&&... args){
     std::cout << "function woring for: " << duration.count()/1000000 << '.' << duration.count()%1000000 << " seconds\n";
 }
 
-void path_ordered_finder(std::vector<unsigned> &path, const std::string &filename, unsigned start_node = 1, unsigned num_v = 1e6,
-        unsigned num_e = 1e6, unsigned period = 1e4) {
+void path_ordered_finder(std::vector<unsigned> &path, const std::string &filename, unsigned start_node, unsigned num_v,
+        unsigned num_e, unsigned period) {
 
     std::ifstream file(filename);
 
@@ -136,7 +128,7 @@ void path_fill(std::vector<std::unordered_map<unsigned, unsigned>> &path, std::v
     }
 }
 
-void path_ordered_finder_adjacency_map(std::vector<std::unordered_map<unsigned, unsigned>> &path, const std::string &filename, const unsigned num_v = 1e6){
+void path_ordered_finder_adjacency_map(std::vector<std::unordered_map<unsigned, unsigned>> &path, const std::string &filename, const unsigned num_v){
     std::vector<unsigned> node_times(num_v, INF);
     std::ifstream file(filename);
     unsigned node_from, node_to, time; char _;
@@ -174,7 +166,7 @@ void path_fill_node(std::vector<Node> &path, std::vector<unsigned> &node_times,
     }
 }
 
-void path_ordered_finder_node(std::vector<Node> &path, const std::string &filename, const unsigned num_v = 1e6){
+void path_ordered_finder_node(std::vector<Node> &path, const std::string &filename, const unsigned num_v){
     std::vector<unsigned> node_times(num_v, INF);
     std::ifstream file(filename);
     unsigned node_from, node_to, time; char _;
@@ -187,57 +179,3 @@ void path_ordered_finder_node(std::vector<Node> &path, const std::string &filena
         }
     }
 }
-
-
-
-int main(){
-    unsigned num_v = 1e6, num_e = 1e6*2, period = 1e3;
-    std::vector<Node> path(num_v);
-    //generate_ordered_temporal_graph("data.csv", num_v, num_e, period);
-    //calc_time(generate_ordered_temporal_graph, "data.csv", num_v, num_e, period);
-    calc_time(path_ordered_finder_adjacency_map, path, "data.csv", num_v);
-    //path_ordered_finder_adjacency_map(path, "data.csv", num_v);
-    return 0;
-}
-
-
-/*
-heaptrack_print heaptrack.rere.17561.zst > report3.txt
-Генерация сети:
-    edjes_at_time = num_edjes / period;
-    for(time = 0; time < period; ++time){
-        for(i= 0; i < edjes_at_time; ++i){
-            node1 = generate();
-            node2 = generate();
-            while(node1 == node2) node2 = generate();
-            file << node1 << " , " << node2 << " , " << time << '\n';
-        } 
-    }
-
-Поиск расстояний:
-    while(!file.eof()){
-        file >> node_from >> node_to >> time;
-        if(not node_to in path[node_from]){
-            path_fill(path, node_times, node_from, node_to, time);
-        }
-    }
-
-    path_fill(path, node_times, node_from, node_to, cur_time)  {
-        if(node_times[node_to] == INF) node_times[node_to] = cur_time;
-        delta_time = cur_time - node_times[node_from];
-        path[node_to][node_from] = delta_time;
-        for(i : path[node_from]){
-            if(not i.node in path[node_to]) path[node_to][i.node] = path[node_from][i.node] + delta_time;
-        }
-    }
-
-Структура:
-    std::vector<unordered_map<unsigned, unsigned>> path(num_v);
-    список смежности с быстрым доступом
-    std::vector<unsigned> node_times(num_v, INF);
-    вектор, который хранит время начала активности каждой вершины,
-    необходим для минимизации вычилений
-
-    heaptrack ./rere
-    heaptrack_print heaptrack.rere.81521.zst > report2.txt
-*/

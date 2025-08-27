@@ -3,5 +3,8 @@
 *.exe
 *.out
 *.log
+*.csv
+
+rere.cpp
 
 .vscode/
