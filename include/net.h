@@ -14,8 +14,13 @@ struct Node {
     bool _is_large;
     union {
         std::map<unsigned, unsigned>* map_ptr;
-        std::vector<std::pair<Node, unsigned>>* vector_ptr; 
+        std::vector<std::pair<Node*, unsigned>>* vector_ptr; 
     } data;
+    Node();
+    Node(const Node&) = delete;
+    Node& operator=(const Node&) = delete;
+    Node(Node&& other);
+    Node& operator=(Node&& other);
     unsigned find(unsigned node);
     void fill(Node &from, unsigned dist);
     ~Node();
