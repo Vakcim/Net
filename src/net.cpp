@@ -54,14 +54,14 @@ uint32_t Node::find(uint32_t node) {
 void Node::fill(Node &from, uint32_t dist) {
   if (!_is_large) {
     if (data.map_ptr == nullptr)
-      data.map_ptr = new std::unordered_map<uint32_t, uint32_t>;
+      data.map_ptr = new compact_map_t;
     if (from._is_large) {
       for (auto &i : *from.data.vector_ptr) {
         this->fill(*i.first, i.second + dist);
       }
     } else {
       for (const auto &[key, val] : *from.data.map_ptr) {
-        data.map_ptr->try_emplace(key, val + dist);
+        data.map_ptr->emplace(key, val + dist);
       }
     }
   } else {
@@ -72,6 +72,13 @@ void Node::fill(Node &from, uint32_t dist) {
 }
 // При is_large < LARGE m хранит расстояния до вершин, иначе расстояния до
 // компонент
+
+size_t Node::size(){
+    if(_is_large){
+        return data.vector_ptr->size();
+    } 
+    return data.map_ptr->size();
+}
 
 void generate_unordered_temporal_graph(const std::string &filename,
                                        uint32_t num_v, uint32_t num_e,
@@ -146,7 +153,7 @@ void path_ordered_finder(std::vector<uint32_t> &path,
   file.close();
 }
 
-void path_fill(std::vector<std::unordered_map<uint32_t, uint32_t>> &path,
+void path_fill(std::vector<compact_map_t> &path,
                std::vector<uint32_t> &node_times, const uint32_t node_from,
                const uint32_t node_to, const uint32_t cur_time) {
   if (node_times[node_to] == INF)
@@ -154,12 +161,12 @@ void path_fill(std::vector<std::unordered_map<uint32_t, uint32_t>> &path,
   uint32_t delta_time = cur_time - node_times[node_from];
   path[node_to][node_from] = delta_time;
   for (const auto &[key, val] : path[node_from]) {
-    path[node_to].try_emplace(key, val + delta_time);
+    path[node_to].emplace(key, val + delta_time);
   }
 }
 
 void path_ordered_finder_adjacency_map(
-    std::vector<std::unordered_map<uint32_t, uint32_t>> &path,
+    std::vector<compact_map_t> &path,
     const std::string &filename, const uint32_t num_v) {
   std::vector<uint32_t> node_times(num_v, INF);
   std::ifstream file(filename);
@@ -180,7 +187,7 @@ void path_fill_node(std::vector<Node> &path, std::vector<uint32_t> &node_times,
                     const uint32_t cur_time) {
   if(node_times[node_from] == INF){
     node_times[node_from] = cur_time - 1;
-    path[node_from].data.map_ptr = new std::unordered_map<uint32_t, uint32_t>;
+    path[node_from].data.map_ptr = new compact_map_t;
   }
   uint32_t delta_time = cur_time - node_times[node_from];
   if (node_times[node_to] == INF) { // Новая вершина
@@ -193,17 +200,17 @@ void path_fill_node(std::vector<Node> &path, std::vector<uint32_t> &node_times,
           std::pair<Node *, uint32_t>(&path[node_from], delta_time));
     } else { // маленькая
       path[node_to]._is_large = false;
-      path[node_to].data.map_ptr = new std::unordered_map<uint32_t, uint32_t>;
+      path[node_to].data.map_ptr = new compact_map_t;
+      path[node_to].data.map_ptr->reserve(path[node_from].data.map_ptr->size() + 1);
       for (const auto &[key, val] : *path[node_from].data.map_ptr) {
-        path[node_to].data.map_ptr->try_emplace(key, val + delta_time);
+        path[node_to].data.map_ptr->emplace(key, val + delta_time);
       }
-      path[node_to].data.map_ptr->try_emplace(node_from, delta_time);
+      path[node_to].data.map_ptr->emplace(node_from, delta_time);
     }
     node_times[node_to] = cur_time;
   } else {                          // старая веришна
     if (!path[node_to]._is_large) { // маленькая
-      path[node_to].data.map_ptr->try_emplace(node_from, delta_time);
-      (*path[node_to].data.map_ptr)[node_from] = delta_time;
+      path[node_to].data.map_ptr->emplace(node_from, delta_time);
     }
     path[node_to].fill(path[node_from], delta_time);
   }

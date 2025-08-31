@@ -6,16 +6,19 @@
 #include <string>
 #include <chrono>
 #include <iostream>
-
+#include "flat_hash_map.hpp"
+using compact_map_t = ska::flat_hash_map<uint32_t, uint32_t>;
 
 constexpr uint32_t INF = 1e9;
-constexpr uint32_t LARGE = 1e3;
+constexpr uint32_t LARGE = 50;
 constexpr uint32_t NOT_FOUND = std::numeric_limits<uint32_t>::max();
+
+//unsigned num_large = 0;
 
 struct Node {
     bool _is_large;
     union {
-        std::unordered_map<uint32_t, uint32_t>* map_ptr;
+        compact_map_t* map_ptr;
         std::vector<std::pair<Node*, uint32_t>>* vector_ptr; 
     } data;
     Node();
@@ -25,6 +28,7 @@ struct Node {
     Node& operator=(Node&& other);
     uint32_t find(uint32_t node);
     void fill(Node &from, uint32_t dist);
+    size_t size();
     ~Node();
 };
 
@@ -48,10 +52,10 @@ void calc_time(F &&func, Args &&...args) {
 void path_ordered_finder(std::vector<uint32_t> &path, const std::string &filename, uint32_t start_node = 1, uint32_t num_v = 1e6,
         uint32_t num_e = 1e6, uint32_t period = 1e4);
 
-void path_fill(std::vector<std::unordered_map<uint32_t, uint32_t>> &path, std::vector<uint32_t> &node_times,
+void path_fill(std::vector<compact_map_t> &path, std::vector<uint32_t> &node_times,
                 const uint32_t node_from, const uint32_t node_to, const uint32_t cur_time);
 
-void path_ordered_finder_adjacency_map(std::vector<std::unordered_map<uint32_t, uint32_t>> &path, const std::string &filename, const uint32_t num_v = 1e6);
+void path_ordered_finder_adjacency_map(std::vector<compact_map_t> &path, const std::string &filename, const uint32_t num_v = 1e6);
 
 void path_fill_node(std::vector<Node> &path, std::vector<uint32_t> &node_times,
                 const uint32_t node_from, const uint32_t node_to, const uint32_t cur_time);
