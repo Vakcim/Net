@@ -27,7 +27,8 @@ struct Node {
     Node(Node&& other);
     Node& operator=(Node&& other);
     uint32_t find(uint32_t node);
-    void fill(Node &from, uint32_t dist);
+    void fill(Node *from, uint32_t dist);
+    void increase();
     size_t size();
     ~Node();
 };

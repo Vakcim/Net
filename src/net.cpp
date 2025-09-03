@@ -51,25 +51,37 @@ uint32_t Node::find(uint32_t node) {
   return NOT_FOUND;
 }
 
-void Node::fill(Node &from, uint32_t dist) {
+void Node::fill(Node *from, uint32_t dist) { //нужно исправить баг с тем, что маленькая вершина стала большой
   if (!_is_large) {
     if (data.map_ptr == nullptr)
       data.map_ptr = new compact_map_t;
-    if (from._is_large) {
-      for (auto &i : *from.data.vector_ptr) {
-        this->fill(*i.first, i.second + dist);
+    if (from->_is_large) {
+      for (auto &i : *from->data.vector_ptr) {
+        this->fill(i.first, i.second + dist);
       }
     } else {
-      for (const auto &[key, val] : *from.data.map_ptr) {
+      for (const auto &[key, val] : *from->data.map_ptr) {
         data.map_ptr->emplace(key, val + dist);
       }
     }
   } else {
     if (data.vector_ptr == nullptr)
       data.vector_ptr = new std::vector<std::pair<Node *, uint32_t>>;
-    data.vector_ptr->push_back({&from, dist});
+    data.vector_ptr->push_back({from, dist});
   }
 }
+
+void Node::increase(){
+  if(_is_large) throw std::runtime_error("increase(): увеличение большой вершины");
+  if(data.map_ptr == nullptr) throw std::runtime_error("increase(): пустая вершина");
+  Node *past_node = new Node;
+  past_node->data.map_ptr = data.map_ptr;
+  data.map_ptr = nullptr;
+  data.vector_ptr = new std::vector<std::pair<Node*, uint32_t>>;
+  data.vector_ptr->push_back({past_node, 0});
+  _is_large = true;
+}
+
 // При is_large < LARGE m хранит расстояния до вершин, иначе расстояния до
 // компонент
 
@@ -211,8 +223,12 @@ void path_fill_node(std::vector<Node> &path, std::vector<uint32_t> &node_times,
   } else {                          // старая веришна
     if (!path[node_to]._is_large) { // маленькая
       path[node_to].data.map_ptr->emplace(node_from, delta_time);
+      if(path[node_to].size() >= LARGE){
+        path[node_to].increase();
+      }
+    } else {
+      path[node_to].fill(&path[node_from], delta_time);
     }
-    path[node_to].fill(path[node_from], delta_time);
   }
 }
 
@@ -229,7 +245,6 @@ void path_ordered_finder_node(std::vector<Node> &path,
     }
   }
 }
-
 
 void print_memory_usage() {
     std::ifstream status_file("/proc/self/status");
