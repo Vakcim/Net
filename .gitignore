@@ -1,12 +1,6 @@
+/build/
+/build-sanitize/
+/results/*.csv
 *.o
-*.obj
-*.exe
 *.out
-*.log
-*.csv
-
-
-rere*
-
-.vscode/
-flat_hash_map/
+.DS_Store
