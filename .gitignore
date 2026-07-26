@@ -4,3 +4,9 @@
 *.o
 *.out
 .DS_Store
+
+# Generated benchmark measurements
+results/*.time
+results/*.csv
+core
+core.*

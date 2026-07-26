@@ -19,6 +19,17 @@ struct TemporalEdge {
     Time time{};
 };
 
+// Optional counters for explaining one query. These counters are intentionally
+// collected outside the timed benchmark pass so that instrumentation does not
+// distort latency measurements.
+struct QueryMetrics {
+    bool target_large{false};
+    std::size_t visited_large_states{0};
+    std::size_t scanned_incoming_edges{0};
+    std::size_t small_label_lookups{0};
+    std::size_t successful_small_label_lookups{0};
+};
+
 // Exact hybrid index for strict temporal paths:
 // t_1 < t_2 < ... < t_k.
 //
@@ -33,6 +44,10 @@ public:
     void finalize();
 
     [[nodiscard]] std::optional<Time> earliest_arrival(Vertex source, Vertex target) const;
+    [[nodiscard]] std::optional<Time> earliest_arrival_with_metrics(
+        Vertex source,
+        Vertex target,
+        QueryMetrics& metrics) const;
 
     [[nodiscard]] std::size_t vertex_count() const noexcept { return nodes_.size(); }
     [[nodiscard]] std::size_t promotion_threshold() const noexcept { return threshold_; }
@@ -72,6 +87,11 @@ private:
     void process_pending_batch();
     void promote(Vertex vertex);
 
+    [[nodiscard]] std::optional<Time> earliest_arrival_impl(
+        Vertex source,
+        Vertex target,
+        QueryMetrics* metrics) const;
+
     // Returns whether source can reach target with the last edge time strictly
     // smaller than deadline.
     [[nodiscard]] bool reachable_before(
@@ -79,7 +99,8 @@ private:
         Vertex target,
         Time deadline,
         std::unordered_map<QueryState, bool, QueryStateHash>& memo,
-        std::unordered_map<QueryState, bool, QueryStateHash>& active) const;
+        std::unordered_map<QueryState, bool, QueryStateHash>& active,
+        QueryMetrics* metrics) const;
 
     std::vector<Node> nodes_;
     std::size_t threshold_{};

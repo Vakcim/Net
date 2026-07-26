@@ -151,7 +151,8 @@ bool HybridTemporalIndex::reachable_before(
     Vertex target,
     Time deadline,
     std::unordered_map<QueryState, bool, QueryStateHash>& memo,
-    std::unordered_map<QueryState, bool, QueryStateHash>& active) const {
+    std::unordered_map<QueryState, bool, QueryStateHash>& active,
+    QueryMetrics* metrics) const {
     if (source == target) {
         return true;
     }
@@ -169,15 +170,28 @@ bool HybridTemporalIndex::reachable_before(
     bool answer = false;
 
     if (!node.large) {
+        if (metrics != nullptr) {
+            ++metrics->small_label_lookups;
+        }
         const auto it = node.labels.find(source);
         answer = it != node.labels.end() && it->second < deadline;
+        if (answer && metrics != nullptr) {
+            ++metrics->successful_small_label_lookups;
+        }
     } else {
+        if (metrics != nullptr) {
+            ++metrics->visited_large_states;
+        }
         for (const auto& edge : node.incoming) {
             if (edge.time >= deadline) {
                 break;
             }
+            if (metrics != nullptr) {
+                ++metrics->scanned_incoming_edges;
+            }
             if (edge.source == source ||
-                reachable_before(source, edge.source, edge.time, memo, active)) {
+                reachable_before(
+                    source, edge.source, edge.time, memo, active, metrics)) {
                 answer = true;
                 break;
             }
@@ -192,6 +206,21 @@ bool HybridTemporalIndex::reachable_before(
 std::optional<Time> HybridTemporalIndex::earliest_arrival(
     Vertex source,
     Vertex target) const {
+    return earliest_arrival_impl(source, target, nullptr);
+}
+
+std::optional<Time> HybridTemporalIndex::earliest_arrival_with_metrics(
+    Vertex source,
+    Vertex target,
+    QueryMetrics& metrics) const {
+    metrics = QueryMetrics{};
+    return earliest_arrival_impl(source, target, &metrics);
+}
+
+std::optional<Time> HybridTemporalIndex::earliest_arrival_impl(
+    Vertex source,
+    Vertex target,
+    QueryMetrics* metrics) const {
     check_vertex(source);
     check_vertex(target);
     if (!finalized_ || pending_time_.has_value()) {
@@ -202,12 +231,26 @@ std::optional<Time> HybridTemporalIndex::earliest_arrival(
     }
 
     const auto& target_node = nodes_[target];
+    if (metrics != nullptr) {
+        metrics->target_large = target_node.large;
+    }
+
     if (!target_node.large) {
+        if (metrics != nullptr) {
+            ++metrics->small_label_lookups;
+        }
         const auto it = target_node.labels.find(source);
         if (it == target_node.labels.end()) {
             return std::nullopt;
         }
+        if (metrics != nullptr) {
+            ++metrics->successful_small_label_lookups;
+        }
         return it->second;
+    }
+
+    if (metrics != nullptr) {
+        ++metrics->visited_large_states;
     }
 
     std::unordered_map<QueryState, bool, QueryStateHash> memo;
@@ -216,8 +259,12 @@ std::optional<Time> HybridTemporalIndex::earliest_arrival(
     // Incoming edges are appended in nondecreasing timestamp order. The first
     // feasible last edge therefore gives the earliest arrival at target.
     for (const auto& edge : target_node.incoming) {
+        if (metrics != nullptr) {
+            ++metrics->scanned_incoming_edges;
+        }
         if (edge.source == source ||
-            reachable_before(source, edge.source, edge.time, memo, active)) {
+            reachable_before(
+                source, edge.source, edge.time, memo, active, metrics)) {
             return edge.time;
         }
     }

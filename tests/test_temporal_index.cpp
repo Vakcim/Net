@@ -10,6 +10,7 @@
 #include <vector>
 
 using temporal_index::HybridTemporalIndex;
+using temporal_index::QueryMetrics;
 using temporal_index::TemporalEdge;
 using temporal_index::Time;
 using temporal_index::Vertex;
@@ -131,6 +132,34 @@ void test_zero_timestamp_direct_edge() {
     check_equal(index.earliest_arrival(0, 2), 1, "strict continuation after zero");
 }
 
+void test_query_metrics() {
+    const std::vector<TemporalEdge> edges{
+        {0, 1, 1}, {1, 2, 3}, {2, 3, 8}
+    };
+
+    auto small_index = build(4, 10, edges);
+    QueryMetrics small_metrics;
+    check_equal(
+        small_index.earliest_arrival_with_metrics(0, 3, small_metrics),
+        8,
+        "small-target metrics preserve answer");
+    CHECK(!small_metrics.target_large);
+    CHECK(small_metrics.visited_large_states == 0);
+    CHECK(small_metrics.scanned_incoming_edges == 0);
+    CHECK(small_metrics.small_label_lookups == 1);
+    CHECK(small_metrics.successful_small_label_lookups == 1);
+
+    auto large_index = build(4, 1, edges);
+    QueryMetrics large_metrics;
+    check_equal(
+        large_index.earliest_arrival_with_metrics(0, 3, large_metrics),
+        8,
+        "large-target metrics preserve answer");
+    CHECK(large_metrics.target_large);
+    CHECK(large_metrics.visited_large_states >= 1);
+    CHECK(large_metrics.scanned_incoming_edges >= 1);
+}
+
 void test_order_validation() {
     HybridTemporalIndex index(3, 2);
     index.add_edge(0, 1, 10);
@@ -208,6 +237,7 @@ int main() {
     test_earliest_of_multiple_paths();
     test_equal_time_cycle_does_not_extend_path();
     test_zero_timestamp_direct_edge();
+    test_query_metrics();
     test_order_validation();
     test_query_requires_finalize();
     fuzz_against_reference();
