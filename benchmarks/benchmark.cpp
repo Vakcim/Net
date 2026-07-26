@@ -10,6 +10,7 @@
 #include <optional>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 using temporal_index::HybridTemporalIndex;
@@ -91,6 +92,38 @@ int main(int argc, char** argv) {
                  "query_mean_us,query_p50_us,query_p95_us,query_p99_us,large_vertices,"
                  "large_fraction,stored_label_entries,verified_queries,verification_mismatches\n";
 
+    // Every threshold is evaluated on exactly the same query pairs.
+    // Otherwise differences in query difficulty may be confused with the
+    // effect of the promotion threshold.
+    std::mt19937_64 workload_rng(
+        config.seed + 0x9e3779b97f4a7c15ULL);
+    std::uniform_int_distribution<Vertex> vertex_dist(
+        0, config.vertices - 1);
+
+    const auto make_query_pairs =
+        [&](std::size_t count) {
+            std::vector<std::pair<Vertex, Vertex>> pairs;
+            pairs.reserve(count);
+
+            for (std::size_t i = 0; i < count; ++i) {
+                Vertex source = vertex_dist(workload_rng);
+                Vertex target = vertex_dist(workload_rng);
+
+                while (target == source) {
+                    target = vertex_dist(workload_rng);
+                }
+
+                pairs.emplace_back(source, target);
+            }
+
+            return pairs;
+        };
+
+    const auto timed_queries =
+        make_query_pairs(config.queries);
+    const auto verification_queries =
+        make_query_pairs(config.verify_queries);
+
     for (const auto threshold : config.thresholds) {
         const auto build_start = std::chrono::steady_clock::now();
         HybridTemporalIndex index(config.vertices, threshold);
@@ -98,32 +131,33 @@ int main(int argc, char** argv) {
         index.finalize();
         const auto build_end = std::chrono::steady_clock::now();
 
-        std::mt19937_64 query_rng(config.seed + threshold * 7919ULL);
-        std::uniform_int_distribution<Vertex> vertex_dist(0, config.vertices - 1);
         std::vector<double> query_us;
-        query_us.reserve(config.queries);
-        for (std::size_t i = 0; i < config.queries; ++i) {
-            Vertex source = vertex_dist(query_rng);
-            Vertex target = vertex_dist(query_rng);
-            while (target == source) target = vertex_dist(query_rng);
+        query_us.reserve(timed_queries.size());
+
+        for (const auto& [source, target] : timed_queries) {
             const auto start = std::chrono::steady_clock::now();
-            volatile auto answer = index.earliest_arrival(source, target);
+            volatile auto answer =
+                index.earliest_arrival(source, target);
             (void)answer;
             const auto end = std::chrono::steady_clock::now();
+
             query_us.push_back(
-                std::chrono::duration<double, std::micro>(end - start).count());
+                std::chrono::duration<double, std::micro>(
+                    end - start).count());
         }
 
         std::size_t mismatches = 0;
-        std::mt19937_64 verify_rng(config.seed + threshold * 104729ULL);
-        for (std::size_t i = 0; i < config.verify_queries; ++i) {
-            Vertex source = vertex_dist(verify_rng);
-            Vertex target = vertex_dist(verify_rng);
-            while (target == source) target = vertex_dist(verify_rng);
-            const auto exact = temporal_index::exact_earliest_arrival(
-                config.vertices, edges, source, target);
-            const auto hybrid = index.earliest_arrival(source, target);
-            if (exact != hybrid) ++mismatches;
+
+        for (const auto& [source, target] : verification_queries) {
+            const auto exact =
+                temporal_index::exact_earliest_arrival(
+                    config.vertices, edges, source, target);
+            const auto hybrid =
+                index.earliest_arrival(source, target);
+
+            if (exact != hybrid) {
+                ++mismatches;
+            }
         }
 
         const double mean = std::accumulate(query_us.begin(), query_us.end(), 0.0) /

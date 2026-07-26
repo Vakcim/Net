@@ -1,4 +1,14 @@
-.PHONY: configure build test sanitize benchmark example clean
+.PHONY: help configure build test sanitize benchmark example clean
+
+help:
+	@echo "Available targets:"
+	@echo "  make build      - build the project in Release mode"
+	@echo "  make test       - build and run correctness tests"
+	@echo "  make sanitize   - run tests with ASan and UBSan"
+	@echo "  make example    - run the small CSV example"
+	@echo "  make benchmark  - run synthetic benchmarks and analysis"
+	@echo "  make clean      - remove build directories and generated CSV files"
+
 
 configure:
 	cmake -S . -B build -DCMAKE_BUILD_TYPE=Release

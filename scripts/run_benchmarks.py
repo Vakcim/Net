@@ -28,27 +28,43 @@ def main() -> int:
     output = pathlib.Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     seeds = [int(x) for x in args.seeds.split(",") if x]
+    thresholds = [
+        int(x)
+        for x in args.thresholds.split(",")
+        if x
+    ]
 
     rows: list[dict[str, str]] = []
     fieldnames: list[str] | None = None
-    for seed in seeds:
-        command = [
-            args.binary,
-            "--vertices", str(args.vertices),
-            "--events", str(args.events),
-            "--queries", str(args.queries),
-            "--verify-queries", str(args.verify_queries),
-            "--time-buckets", str(args.time_buckets),
-            "--gamma", str(args.gamma),
-            "--model", args.model,
-            "--seed", str(seed),
-            "--thresholds", args.thresholds,
-        ]
-        completed = subprocess.run(command, check=True, text=True, capture_output=True)
-        reader = csv.DictReader(completed.stdout.splitlines())
-        fieldnames = reader.fieldnames
-        rows.extend(reader)
 
+    for seed in seeds:
+        for threshold in thresholds:
+            command = [
+                args.binary,
+                "--vertices", str(args.vertices),
+                "--events", str(args.events),
+                "--queries", str(args.queries),
+                "--verify-queries", str(args.verify_queries),
+                "--time-buckets", str(args.time_buckets),
+                "--gamma", str(args.gamma),
+                "--model", args.model,
+                "--seed", str(seed),
+                "--thresholds", str(threshold),
+            ]
+
+            completed = subprocess.run(
+                command,
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+
+            reader = csv.DictReader(
+                completed.stdout.splitlines()
+            )
+            fieldnames = reader.fieldnames
+            rows.extend(reader)
+            
     if not fieldnames:
         raise RuntimeError("benchmark produced no CSV header")
     with output.open("w", newline="", encoding="utf-8") as handle:
