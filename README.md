@@ -1,137 +1,720 @@
-# Hybrid bi-level index for temporal reachability
+# Гибридный индекс для темпоральной достижимости
 
-A clean reference implementation and reproducible test/benchmark harness for an
-exact hybrid index over a stream of directed temporal edges.
+Экспериментальная реализация гибридного индекса для задач темпоральной достижимости и поиска времени наиболее раннего прибытия в append-only темпоральных графах.
 
-## Semantics
+Основная идея алгоритма — разделять вершины на два класса в зависимости от размера их множества темпоральных предшественников:
 
-A temporal path uses strictly increasing timestamps:
+- **small-вершины** хранят полную таблицу достижимости;
+- **large-вершины** хранят только входящие темпоральные рёбра;
+- запрос к small-вершине выполняется прямым поиском в таблице;
+- запрос к large-вершине выполняется обратным обходом по темпоральным рёбрам с использованием small-вершин как готовых shortcut-таблиц.
+
+Разделение регулируется порогом продвижения \(B\).
+
+Проект используется как исследовательский стенд для изучения того, как структура темпорального графа влияет на время запросов, память и оптимальный выбор \(B\).
+
+---
+
+## Постановка задачи
+
+Темпоральный граф задаётся последовательностью событий
+
+\[
+(u,v,t),
+\]
+
+где ребро из \(u\) в \(v\) может быть использовано в момент времени \(t\).
+
+В текущей реализации используются **строгие темпоральные пути**:
+
+\[
+t_1 < t_2 < \dots < t_k.
+\]
+
+Для пары вершин \(s,v\) требуется найти минимальное время прибытия в \(v\) по строгому темпоральному пути из \(s\).
+
+События с одинаковым timestamp обрабатываются одним временным слоем: обновления внутри одного слоя не могут использовать друг друга. Это исключает искусственную передачу достижимости по нескольким рёбрам с одинаковым временем.
+
+---
+
+## Гибридный индекс
+
+Для вершины \(v\) обозначим через
+
+\[
+R_v =
+\left|
+\{s : s \text{ темпорально достигает } v\}
+\right|
+\]
+
+размер множества её темпоральных предшественников.
+
+Пока
+
+\[
+R_v < B,
+\]
+
+вершина считается **small** и хранит полную таблицу предшественников с временами наиболее раннего прибытия.
+
+При достижении
+
+\[
+R_v \ge B
+\]
+
+вершина становится **large**, её полная таблица удаляется, а при запросах используется обратный обход по входящим темпоральным рёбрам.
+
+Точное число хранимых label-записей равно
+
+\[
+M_{\text{labels}}(B)
+=
+\sum_v
+R_v\,\mathbf 1\{R_v<B\}.
+\]
+
+---
+
+## Модель времени запроса
+
+Пусть
+
+\[
+q_L(B)
+=
+P(\text{target запроса является large}).
+\]
+
+Тогда среднее время запроса естественно разлагается как
+
+\[
+T(B)
+=
+(1-q_L(B))T_S(B)
++
+q_L(B)T_L(B),
+\]
+
+где
+
+- \(T_S(B)\) — среднее время запроса к small-target;
+- \(T_L(B)\) — среднее время запроса к large-target.
+
+Это разложение оказалось ключевым для интерпретации экспериментальных результатов.
+
+---
+
+# Корректность
+
+Новая реализация проверяется сравнением с независимым exact earliest-arrival алгоритмом.
+
+Во всех проведённых synthetic и hyperbolic экспериментах получено
 
 ```text
-t1 < t2 < ... < tk
+verification_mismatches = 0
 ```
 
-Edges must be supplied in nondecreasing time order. Equal-time edges are
-processed as one simultaneous batch: reachability created at time `t` cannot be
-used by another edge at time `t`. Thus results do not depend on order inside the
-batch.
-The query returns the earliest arrival timestamp. For `source == target`, it
-returns `0` for the empty path.
+для всех протестированных значений \(B\).
 
-## Algorithm
+Также тестируются:
 
-- **Small vertices** store exact predecessor labels `source -> earliest arrival`.
-- **Large vertices** retain only incoming temporal edges.
-- A vertex is promoted when its label count reaches threshold `B`.
-- An edge from a predecessor that was already large before the current
-  timestamp immediately promotes a small target. A vertex promoted inside the
-  current equal-time batch does not propagate its new predecessors at that time.
-- Queries to small targets are hash lookups. Queries to large targets perform an
-  exact backward traversal and use small labels as shortcuts.
+- строгий порядок времён;
+- несколько событий с одинаковым timestamp;
+- переход вершины из small в large;
+- распространение таблиц достижимости;
+- графы со статическими циклами.
 
-See [docs/ALGORITHM.md](docs/ALGORITHM.md) for the exactness invariant and the
-strict equal-time batch rule.
-
-## Build and test
-
-Requirements: CMake 3.16+, a C++20 compiler, Python 3.9+ for benchmark scripts.
-No third-party C++ libraries are required.
+Запуск тестов:
 
 ```bash
 make test
+```
+
+Проверка sanitizers:
+
+```bash
 make sanitize
 ```
 
-The test suite includes deterministic examples and 150 randomized graphs. Every
-answer is compared with an independent exact temporal scan for multiple
-thresholds and all source-target pairs.
+---
 
-## Run an example
+# Синтетический benchmark
 
-```bash
-make example
+Benchmark устроен так, чтобы изменение \(B\) не меняло сам экспериментальный workload.
+
+Для каждого seed:
+
+1. генерируется один темпоральный граф;
+2. один раз генерируется набор query pairs;
+3. один и тот же граф и один и тот же набор запросов используются для всех \(B\).
+
+Это позволяет отделить реальный эффект threshold от случайных различий между графами и запросами.
+
+---
+
+# DAG-Pareto
+
+Первый контролируемый генератор — `dag-pareto`.
+
+Вершины имеют тяжёлохвостые веса, но рёбра ориентированы в соответствии с глобальным порядком вершин, поэтому статические ориентированные циклы отсутствуют.
+
+Этот генератор используется в первую очередь как контролируемый тест алгоритма, а не как максимально реалистичная модель темпоральной сети.
+
+Для эксперимента
+
+```text
+vertices = 5000
+events   = 250000
+gamma    = 2.5
 ```
 
-Or directly:
+получена следующая характерная зависимость:
 
-```bash
-./build/temporal_index_cli \
-  --vertices 4 \
-  --threshold 2 \
-  --input data/example.csv \
-  --source 0 \
-  --target 3
+| B | Доля large | Stored labels | Mean query, µs |
+|---:|---:|---:|---:|
+| 32 | 0.9932 | 548 | 12842.7 |
+| 128 | 0.9712 | 9372 | 9661.9 |
+| 512 | 0.8712 | 168682 | 6660.6 |
+| 1024 | 0.7138 | 769449 | 2545.7 |
+| 2048 | 0.4130 | 3160769 | 260.6 |
+| 3072 | 0.1102 | 6999281 | 12.3 |
+| 4096 | 0.0042 | 8813889 | 0.69 |
+
+На этом классе графов среднее время запроса в основном монотонно уменьшается с ростом \(B\).
+
+Универсальная U-образная зависимость не наблюдалась.
+
+---
+
+# HyperbolicGenerator
+
+Чтобы проверить, не является ли монотонность следствием DAG-ограничения, алгоритм был протестирован на графах, сгенерированных через
+
+```text
+NetworKit HyperbolicGenerator
 ```
 
-CSV format:
+с параметрами
+
+```text
+n = 5000
+gamma = 2.5
+target average degree = 5, 10, 20, 40
+```
+
+Гиперболический генератор создаёт статический недиректированный граф с тяжёлым хвостом степеней, хабами и кластерной структурой.
+
+Для получения темпорального графа использовалась следующая процедура:
+
+1. для каждого статического ребра случайно выбиралось одно направление;
+2. все ориентированные рёбра случайно перемешивались;
+3. им присваивались уникальные времена
+
+\[
+0,1,2,\dots,m-1.
+\]
+
+Таким образом, в отличие от `dag-pareto`, статическая ориентированная проекция может содержать циклы.
+
+При этом временная динамика всё ещё является синтетической: каждое статическое ребро появляется только один раз.
+
+---
+
+# Multi-seed эксперимент
+
+Для каждого target average degree было сгенерировано 10 независимых графов:
+
+```text
+degree ∈ {5, 10, 20, 40}
+seed   ∈ {1, ..., 10}
+```
+
+Для каждого графа использовались
+
+```text
+5000 timed queries
+300 verification queries
+2000 profiled queries
+```
+
+и пороги
+
+```text
+B =
+8, 16, 32, 64, 128, 256, 512,
+768, 1024, 1536, 2048, 3072,
+4096, 5000
+```
+
+Во всех тестах exact-проверка прошла без ошибок.
+
+---
+
+# Темпоральное насыщение достижимости
+
+Главный устойчивый результат текущих экспериментов — резкое изменение плотности темпоральной достижимости при увеличении средней статической степени.
+
+Определим
+
+\[
+\rho_R
+=
+\frac{\sum_v R_v}{n(n-1)}.
+\]
+
+Это доля всех упорядоченных пар вершин, для которых существует темпоральный путь.
+
+Для 10 независимых HyperbolicGenerator-графов получено:
+
+| Target average degree | Mean \(\rho_R\) | Std | Min | Max |
+|---:|---:|---:|---:|---:|
+| 5 | 0.0901 | 0.0238 | 0.0566 | 0.1238 |
+| 10 | 0.3949 | 0.0461 | 0.3187 | 0.4608 |
+| 20 | 0.8493 | 0.0240 | 0.8066 | 0.8900 |
+| 40 | 0.9954 | 0.0016 | 0.9928 | 0.9980 |
+
+То есть при изменении средней степени
+
+\[
+5 \rightarrow 10 \rightarrow 20 \rightarrow 40
+\]
+
+плотность темпоральной достижимости меняется примерно как
+
+\[
+0.09 \rightarrow 0.39 \rightarrow 0.85 \rightarrow 0.995.
+\]
+
+Это указывает на существование разных режимов **temporal reachability saturation**.
+
+---
+
+# Режимы времени запроса
+
+## Sparse regime: average degree ≈ 5
+
+При малой плотности достижимости доля large-вершин плавно уменьшается с ростом \(B\), а среднее время запроса в целом падает.
+
+При этом условная стоимость large-query сначала растёт:
+
+\[
+T_L:
+225
+\rightarrow
+247
+\rightarrow
+269
+\rightarrow
+296
+\rightarrow
+319
+\rightarrow
+347\ \mu s.
+\]
+
+Это можно объяснить selection effect:
+
+\[
+B\uparrow
+\Rightarrow
+\text{обычные large-вершины становятся small}
+\Rightarrow
+\text{в large остаются более тяжёлые хабы}.
+\]
+
+Но число large-target запросов уменьшается быстрее, поэтому общее \(T(B)\) продолжает падать.
+
+---
+
+## Intermediate regime: average degree ≈ 10
+
+При
+
+\[
+\rho_R \approx 0.39
+\]
+
+кривая перестаёт быть строго монотонной и образует широкое плато / неглубокий hump перед последующим снижением.
+
+---
+
+## High-saturation regime: average degree ≈ 20
+
+При
+
+\[
+\rho_R \approx 0.85
+\]
+
+получена наиболее интересная форма.
+
+Среднее по 10 графам:
+
+| B | Mean query latency, µs |
+|---:|---:|
+| 8 | 2447.9 |
+| 256 | 2655.8 |
+| 512 | 2654.5 |
+| 1024 | 2683.7 |
+| 1536 | 2703.9 |
+| 2048 | 2715.1 |
+| 3072 | 2683.7 |
+| 4096 | 2402.1 |
+| 5000 | 0.45 |
+
+Получается широкий **инвертированный U / hump**, а не U-образная зависимость.
+
+Рост на левой части кривой заметен во многих realization'ах, но его величина сильно меняется от графа к графу.
+
+Например,
+
+\[
+T(1536)-T(8)
+\approx
++256\ \mu s
+\]
+
+и знак был положительным в 9 из 10 графов, однако обычный 95% confidence interval по величине эффекта всё ещё пересекает ноль.
+
+Правая часть hump оказалась устойчивее:
+
+\[
+T(4096)-T(1024)
+\approx
+-282\ \mu s,
+\]
+
+с отрицательным изменением во всех 10 из 10 графов.
+
+---
+
+## Saturated regime: average degree ≈ 40
+
+При
+
+\[
+\rho_R \approx 0.995
+\]
+
+почти все пары вершин темпорально достижимы.
+
+Почти для всех
+
+\[
+B<n
+\]
+
+доля large-вершин остаётся близкой к 1, поэтому изменение \(B\) почти не меняет query regime.
+
+Только около полного materialization происходит резкий переход к sub-microsecond lookup.
+
+---
+
+# Текущая интерпретация
+
+Эксперименты не подтверждают универсальную модель вида
+
+\[
+\text{power-law degree}
+\Rightarrow
+\text{одна универсальная форма }T(B).
+\]
+
+Наблюдаемые результаты лучше описываются цепочкой
+
+\[
+\text{топология}
+\rightarrow
+\text{временной порядок}
+\rightarrow
+\{R_v\}
+\rightarrow
+\text{temporal reachability saturation}
+\rightarrow
+q_L(B),T_L(B)
+\rightarrow
+T(B).
+\]
+
+Один и тот же абсолютный \(B\) может означать совершенно разные режимы на разных графах.
+
+Например при \(B=1024\):
+
+```text
+average degree 5   -> large fraction ≈ 0.212
+average degree 10  -> large fraction ≈ 0.676
+average degree 20  -> large fraction ≈ 0.958
+average degree 40  -> large fraction ≈ 0.999
+```
+
+Поэтому сравнивать разные сети только по абсолютному значению \(B\) недостаточно.
+
+---
+
+# Стоимость small-query
+
+Во всех текущих экспериментах прямой lookup для small-target остаётся очень дешёвым.
+
+Типичные значения:
+
+```text
+0.05–0.5 µs
+```
+
+В то же время large-query часто занимает сотни или тысячи микросекунд.
+
+Cache/hash-table эффекты измеримы, но их абсолютная величина намного меньше стоимости large traversal.
+
+Поэтому прежнее объяснение универсальной U-образной зависимости через быстрый рост стоимости small-table lookup текущими экспериментами не подтверждается.
+
+---
+
+# Query profiling
+
+Benchmark отдельно измеряет работу large-query:
+
+```text
+visited_large_states
+scanned_incoming_edges
+small_label_lookups
+successful_small_label_lookups
+```
+
+Это позволяет отличать настоящий рост алгоритмической работы от обычного шума wall-clock измерений.
+
+В некоторых насыщенных режимах измеренное время менялось на несколько процентов даже при почти неизменных внутренних счётчиках обхода.
+
+---
+
+# Реальные темпоральные графы
+
+Benchmark поддерживает чтение внешних temporal edge lists в формате
 
 ```text
 source,target,time
-0,1,4
-1,2,5
-2,3,8
 ```
 
-## Reproduce the synthetic benchmark
+Следующий этап исследования — проверка алгоритма на реальных сетях, где временная структура не создаётся искусственно.
 
-```bash
-make benchmark
-```
+В настоящее время подготавливаются следующие датасеты:
 
-This writes `results/benchmark.csv` and fits the direct promotion law
+- **CollegeMsg** — реальная сеть сообщений;
+- **email-Eu-core-temporal** — temporal email network с большим количеством повторных взаимодействий;
+- **MathOverflow** — более крупная сеть взаимодействий пользователей;
+- **HEP-TH citation graph** — citation network как отдельный DAG-like real-world control.
+
+---
+
+# Дальнейшая работа
+
+## 1. Проверка гипотезы saturation на реальных данных
+
+Главная текущая гипотеза:
+
+\[
+\rho_R
+=
+\frac{\sum_vR_v}{n(n-1)}
+\]
+
+является одним из ключевых параметров, определяющих режим работы гибридного индекса.
+
+Необходимо проверить, сохраняется ли связь между \(\rho_R\) и формой \(T(B)\) на реальных communication, social и citation networks.
+
+## 2. Анализ распределения \(R_v\)
+
+Необходимо понять, какие структурные свойства лучше всего предсказывают размер темпорального множества предшественников.
+
+Планируется анализ связи \(R_v\) с:
 
 ```text
-p_L(B) = P(R >= B) ~= C B^(-kappa),
+in-degree
+out-degree
+temporal activity
+положением вершины во временном потоке
+community structure
+числом повторных взаимодействий
 ```
 
-where `R` is the temporal predecessor-set size. See
-[docs/SYNTHETIC_VALIDATION.md](docs/SYNTHETIC_VALIDATION.md). The older
-`degree -> reachable set` formula is retained as a secondary hypothesis and
-must be validated rather than assumed. `make benchmark` also writes a full
-per-vertex profile and compares the directly fitted reachable-set exponent with
-`(gamma_hat - 1) / delta_hat`.
+## 3. Анализ поведения \(T_L(B)\)
 
-Two synthetic models are available:
+Рост \(B\) меняет не только долю large-вершин, но и состав этого класса.
 
-- `dag-pareto` (default): acyclic support, useful for avoiding reachability
-  saturation during scaling validation;
-- `random-pareto`: cyclic stress test that often becomes highly reachable and
-  therefore demonstrates finite-size/saturation failure of naive power-law fits.
+Рабочая гипотеза:
 
-Custom benchmark:
+\[
+B\uparrow
+\Rightarrow
+\text{в large остаются всё более экстремальные вершины}
+\Rightarrow
+T_L(B)\text{ может расти}.
+\]
 
-```bash
-./build/temporal_benchmark \
-  --vertices 2000 \
-  --events 50000 \
-  --queries 10000 \
-  --verify-queries 200 \
-  --time-buckets 5000 \
-  --gamma 2.5 \
-  --model dag-pareto \
-  --seed 42 \
-  --thresholds 4,8,16,32,64,128,256,512 > results/run.csv
-```
-
-## Repository layout
+Для проверки будут анализироваться:
 
 ```text
-include/temporal_index/  public API
-src/                     implementation
-apps/                    CSV command-line tool
-tests/                   exactness and fuzz tests
-benchmarks/              deterministic synthetic benchmark
-scripts/                 repeated runs and power-law fit
-docs/                    algorithm and analytical model notes
+visited large states
+scanned incoming edges
+small-table shortcuts
+degree
+R_v
 ```
 
-## Research checklist
+## 4. Повторные взаимодействия
 
-Before using results in a paper:
+В текущем HyperbolicGenerator-тесте каждое статическое ребро порождает только одно temporal event.
 
-1. run tests and sanitizers on the exact commit being evaluated;
-2. record compiler, CPU, OS, commit hash, seed and all CLI parameters;
-3. report p50/p95/p99 query latency, build time, label entries and large fraction;
-4. require `verification_mismatches = 0` for every benchmark row;
-5. fit power laws only on a declared non-saturated scaling range;
-6. publish raw CSV files and scripts together with figures.
+В реальных сетях одна пара вершин может взаимодействовать много раз.
+
+Необходимо исследовать влияние repeated interactions и bursty activity на
+
+\[
+R_v,
+\quad
+q_L(B),
+\quad
+T_L(B),
+\quad
+M(B).
+\]
+
+## 5. Нормализация threshold между графами
+
+Абсолютное значение \(B\) плохо переносится между графами.
+
+В дальнейших экспериментах планируется сравнивать пороги также через
+
+\[
+q_L(B)
+\]
+
+и квантили эмпирического распределения \(R_v\).
+
+Это позволит сопоставлять графы разных размеров и плотностей в одинаковых алгоритмических режимах.
+
+## 6. Разделение graph variability и timing noise
+
+Для части режимов разброс между realization'ами графа достаточно велик.
+
+Планируется повторное измерение времени одного и того же индекса на одном и том же графе, чтобы отдельно оценить
+
+\[
+\operatorname{Var}_{graph}
+\]
+
+и
+
+\[
+\operatorname{Var}_{timing}.
+\]
+
+## 7. Оптимизация с учётом памяти и workload
+
+В практической системе threshold должен выбираться не только по минимальному query time.
+
+Общий критерий можно записать как
+
+\[
+C(B)
+=
+w_q Q T_{\text{query}}(B)
++
+w_b T_{\text{build}}(B)
++
+w_m M(B),
+\]
+
+где
+
+- \(Q\) — ожидаемое число запросов;
+- \(T_{\text{build}}\) — время построения индекса;
+- \(M(B)\) — используемая память;
+- \(w_q,w_b,w_m\) — веса конкретного workload.
+
+---
+
+# Структура проекта
+
+```text
+apps/
+    temporal_index_cli.cpp
+
+benchmarks/
+    benchmark.cpp
+    profile.cpp
+
+include/temporal_index/
+    synthetic.hpp
+    temporal_index.hpp
+
+src/
+    synthetic.cpp
+    temporal_index.cpp
+
+tests/
+    test_temporal_index.cpp
+
+scripts/
+    run_benchmarks.py
+    analyze_powerlaw.py
+    analyze_profile.py
+    analyze_query_components.py
+    generate_old_hyperbolic.py
+    analyze_hyperbolic_multiseed.py
+    prepare_snap_real.py
+
+data/
+    example.csv
+
+docs/
+    ALGORITHM.md
+    SYNTHETIC_VALIDATION.md
+```
+
+---
+
+# Сборка
+
+```bash
+make build
+```
+
+Тесты:
+
+```bash
+make test
+```
+
+Sanitizers:
+
+```bash
+make sanitize
+```
+
+---
+
+# Текущий статус
+
+Реализованы:
+
+- строгая темпоральная достижимость;
+- earliest-arrival queries;
+- adaptive small/large promotion;
+- воспроизводимый benchmark с фиксированным workload;
+- exact verification;
+- раздельное измерение small и large queries;
+- instrumentation large traversal;
+- synthetic DAG-Pareto generator;
+- загрузка внешних temporal CSV;
+- HyperbolicGenerator experiments;
+- multi-seed статистический анализ.
+
+## Главный текущий результат
+
+На протестированных классах графов не обнаружено универсальной U-образной зависимости времени запроса от \(B\).
+
+Вместо этого наблюдаются разные режимы поведения индекса, тесно связанные с распределением размеров temporal predecessor sets и степенью насыщения темпоральной достижимости.
+
+Следующий этап — проверить эту гипотезу на реальных temporal networks.
