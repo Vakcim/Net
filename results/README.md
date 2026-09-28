@@ -19,6 +19,6 @@
 
 # Результаты
 
-- CollegeMsg n = 1899, m = 59835, Sp_RS = 0.5
-- Email-Eu-core n = 986, m = 332334, Sp_RS = 0.79
+- CollegeMsg n = 1899, m = 59835, $p_R$ = 0.5
+- Email-Eu-core n = 986, m = 332334, $p_R$ = 0.79
 - 
